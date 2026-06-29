@@ -1,0 +1,5 @@
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+playwright>=1.40.0
+anthropic>=0.30.0
+jpholiday>=0.1.8

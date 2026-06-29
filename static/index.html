@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ポケモンカード イベント検索</title>
+<style>
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface2: #334155;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --gold: #fbbf24;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --border: #334155;
+  --border-focus: #3b82f6;
+  --error-bg: #450a0a;
+  --error-border: #dc2626;
+  --error-text: #fca5a5;
+  --radius: 12px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* Header */
+header {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+  padding: 28px 20px;
+  text-align: center;
+  border-bottom: 3px solid var(--gold);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+header h1 { font-size: 1.7rem; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+header p { color: #bfdbfe; margin-top: 4px; font-size: 0.9rem; }
+
+main { max-width: 860px; margin: 0 auto; padding: 28px 16px 60px; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 24px;
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.card h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gold);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Query textarea */
+textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  color: var(--text);
+  font-size: 1rem;
+  resize: vertical;
+  min-height: 72px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+textarea:focus { outline: none; border-color: var(--border-focus); }
+textarea::placeholder { color: var(--text-muted); }
+
+/* Toggle button */
+.btn-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  margin: 12px 0;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.btn-toggle:hover { border-color: var(--accent); color: var(--text); }
+
+/* Filters grid */
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-top: 4px;
+}
+.filter-group label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+.filter-group input,
+.filter-group select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  appearance: none;
+}
+.filter-group input:focus,
+.filter-group select:focus { outline: none; border-color: var(--border-focus); }
+select option { background: #1e293b; }
+
+.checkbox-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 22px;
+}
+.checkbox-wrap input[type=checkbox] {
+  width: 17px; height: 17px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.checkbox-wrap label { font-size: 0.95rem; cursor: pointer; }
+
+/* Search button */
+.btn-search {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 13px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.2s;
+  font-family: inherit;
+  letter-spacing: 0.03em;
+}
+.btn-search:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-search:disabled { background: var(--surface2); color: var(--text-muted); cursor: not-allowed; }
+
+/* Loading */
+.loading { display: none; text-align: center; padding: 40px 20px; color: var(--text-muted); }
+.loading.on { display: block; }
+.spinner {
+  width: 42px; height: 42px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  margin: 0 auto 14px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Response text */
+.response-box {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px;
+  border: 1px solid var(--border);
+  margin-bottom: 16px;
+  white-space: pre-wrap;
+  line-height: 1.75;
+  font-size: 0.95rem;
+}
+
+/* Results count */
+.results-count {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-left: 2px;
+}
+
+/* Event card */
+.event-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+  transition: border-color 0.2s, transform 0.15s;
+}
+.event-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.event-name { font-weight: 700; font-size: 1rem; margin-bottom: 5px; }
+.event-meta {
+  font-size: 0.83rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.event-meta span { display: flex; align-items: center; gap: 3px; }
+.event-url a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.88rem;
+  word-break: break-all;
+}
+.event-url a:hover { text-decoration: underline; }
+
+/* Error */
+.error-box {
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  color: var(--error-text);
+  font-size: 0.95rem;
+}
+
+/* Empty */
+.empty-box {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+}
+.empty-box .icon { font-size: 3rem; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎴 ポケモンカード イベント検索</h1>
+  <p>Claudeが players.pokemon-card.com からイベントを検索・整理します</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>🔍 イベントを検索</h2>
+
+    <textarea id="query"
+      placeholder="例: 7月の東京で土日のシティリーグを探して&#10;例: 大阪 8月 週末 トレーナーズリーグ&#10;例: 来月の愛知のイベント一覧が見たい"
+      rows="3"></textarea>
+
+    <button class="btn-toggle" onclick="toggleFilters()" id="filterToggle">▼ 詳細フィルターを表示</button>
+
+    <div id="filters" class="filters" style="display:none">
+      <div class="filter-group">
+        <label>都道府県</label>
+        <select id="prefecture">
+          <option value="">-- 選択なし --</option>
+          <option value="北海道">北海道</option><option value="青森">青森</option>
+          <option value="岩手">岩手</option><option value="宮城">宮城</option>
+          <option value="秋田">秋田</option><option value="山形">山形</option>
+          <option value="福島">福島</option><option value="茨城">茨城</option>
+          <option value="栃木">栃木</option><option value="群馬">群馬</option>
+          <option value="埼玉">埼玉</option><option value="千葉">千葉</option>
+          <option value="東京">東京</option><option value="神奈川">神奈川</option>
+          <option value="新潟">新潟</option><option value="富山">富山</option>
+          <option value="石川">石川</option><option value="福井">福井</option>
+          <option value="山梨">山梨</option><option value="長野">長野</option>
+          <option value="岐阜">岐阜</option><option value="静岡">静岡</option>
+          <option value="愛知">愛知</option><option value="三重">三重</option>
+          <option value="滋賀">滋賀</option><option value="京都">京都</option>
+          <option value="大阪">大阪</option><option value="兵庫">兵庫</option>
+          <option value="奈良">奈良</option><option value="和歌山">和歌山</option>
+          <option value="鳥取">鳥取</option><option value="島根">島根</option>
+          <option value="岡山">岡山</option><option value="広島">広島</option>
+          <option value="山口">山口</option><option value="徳島">徳島</option>
+          <option value="香川">香川</option><option value="愛媛">愛媛</option>
+          <option value="高知">高知</option><option value="福岡">福岡</option>
+          <option value="佐賀">佐賀</option><option value="長崎">長崎</option>
+          <option value="熊本">熊本</option><option value="大分">大分</option>
+          <option value="宮崎">宮崎</option><option value="鹿児島">鹿児島</option>
+          <option value="沖縄">沖縄</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>開始日</label>
+        <input type="date" id="date_from">
+      </div>
+      <div class="filter-group">
+        <label>終了日</label>
+        <input type="date" id="date_to">
+      </div>
+      <div class="filter-group">
+        <label>イベント名キーワード</label>
+        <input type="text" id="event_name" placeholder="例: シティリーグ">
+      </div>
+      <div class="filter-group">
+        <div class="checkbox-wrap">
+          <input type="checkbox" id="weekends_only">
+          <label for="weekends_only">土日祝のみ</label>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-search" id="searchBtn" onclick="doSearch()">
+      検索する（Ctrl+Enter）
+    </button>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Claudeがイベントを検索中…</p>
+  </div>
+
+  <div id="results"></div>
+</main>
+
+<script>
+function toggleFilters() {
+  const el = document.getElementById('filters');
+  const btn = document.getElementById('filterToggle');
+  const open = el.style.display === 'none';
+  el.style.display = open ? 'grid' : 'none';
+  btn.textContent = open ? '▲ 詳細フィルターを閉じる' : '▼ 詳細フィルターを表示';
+}
+
+async function doSearch() {
+  const query    = document.getElementById('query').value.trim();
+  const pref     = document.getElementById('prefecture').value;
+  const dateFrom = document.getElementById('date_from').value;
+  const dateTo   = document.getElementById('date_to').value;
+  const evName   = document.getElementById('event_name').value.trim();
+  const weekends = document.getElementById('weekends_only').checked;
+
+  // Build a rich query
+  let fullQuery = query;
+  const extras = [];
+  if (pref)     extras.push(`地域: ${pref}`);
+  if (dateFrom) extras.push(`開始日: ${dateFrom}`);
+  if (dateTo)   extras.push(`終了日: ${dateTo}`);
+  if (evName)   extras.push(`イベント名: ${evName}`);
+  if (weekends) extras.push('土日祝のみ');
+  if (extras.length) fullQuery += (fullQuery ? '\n' : '') + extras.join(', ');
+  if (!fullQuery) fullQuery = 'ポケモンカードのイベントを検索してください';
+
+  const btn = document.getElementById('searchBtn');
+  const loading = document.getElementById('loading');
+  const results = document.getElementById('results');
+
+  btn.disabled = true;
+  loading.classList.add('on');
+  results.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: fullQuery }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (data.error) {
+      results.innerHTML = `<div class="error-box">⚠️ ${esc(data.error)}</div>`;
+      return;
+    }
+
+    let html = '';
+
+    if (data.response) {
+      html += `<div class="response-box">${esc(data.response)}</div>`;
+    }
+
+    const events = data.events || [];
+    if (events.length > 0) {
+      html += `<div class="results-count">${events.length} 件のイベントが見つかりました</div>`;
+      events.forEach(e => {
+        const meta = [
+          e.date    ? `<span>📅 ${esc(e.date)}</span>` : '',
+          e.venue   ? `<span>📍 ${esc(e.venue)}</span>` : '',
+          e.prefecture ? `<span>🗾 ${esc(String(e.prefecture))}</span>` : '',
+        ].filter(Boolean).join('');
+
+        html += `
+        <div class="event-card">
+          <div class="event-name">${esc(e.name || 'イベント')}</div>
+          ${meta ? `<div class="event-meta">${meta}</div>` : ''}
+          ${e.url ? `<div class="event-url"><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.url)}</a></div>` : ''}
+        </div>`;
+      });
+    } else if (!data.response) {
+      html = `<div class="empty-box"><div class="icon">🔍</div><p>イベントが見つかりませんでした</p></div>`;
+    }
+
+    results.innerHTML = html;
+  } catch (err) {
+    results.innerHTML = `<div class="error-box">⚠️ エラー: ${esc(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    loading.classList.remove('on');
+  }
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('query').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) doSearch();
+  });
+});
+</script>
+</body>
+</html>
