@@ -171,7 +171,9 @@ function parseEvent(d) {
     shop_name: String(venue),
     address: String(address),
     prefecture,
-    url: d.url ?? (id ? `${BASE_URL}/event/search/${id}/list` : ""),
+    url: d.url ?? (d.event_holding_id && d.shop_id && d.event_date_params && d.date_id
+      ? `${BASE_URL}/event/detail/${d.event_holding_id}/1/${d.shop_id}/${d.event_date_params}/${d.date_id}`
+      : ""),
   };
 }
 
