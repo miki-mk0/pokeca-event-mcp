@@ -80,7 +80,6 @@ async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
     const ct = response.headers()["content-type"] || "";
     if (!ct.includes("json")) return;
     const url = response.url();
-    if (!["event", "search", "api", "list"].some(k => url.includes(k))) return;
     try {
       const data = await response.json();
       apiResponses.push({ url, data });
@@ -89,6 +88,7 @@ async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
 
   // Build URL
   const params = new URLSearchParams({ offset: "0", order: "1" });
+  if (eventName) params.set("keyword", eventName);
   if (prefecture) {
     const code = PREFECTURE_CODES[prefecture] ?? (String(prefecture).match(/^\d+$/) ? prefecture : null);
     if (code) params.set("prefecture", code);
@@ -144,16 +144,32 @@ function extractFromData(data) {
 
 function parseEvent(d) {
   const id = d.id ?? d.event_id ?? d.eventId ?? d.event_schedule_id ?? d.scheduleId ?? null;
-  const name = d.name ?? d.title ?? d.event_name ?? d.eventName ?? d.league_name ?? "";
-  const date = (d.date ?? d.start_date ?? d.startDate ?? d.event_date ?? d.held_date ?? d.schedule_date ?? "").toString().slice(0, 10);
-  const venue = d.venue ?? d.shop_name ?? d.shopName ?? d.place ?? d.location ?? "";
-  const prefecture = (d.prefecture ?? d.pref ?? d.area ?? "").toString();
+  const name = d.event_title ?? d.name ?? d.title ?? d.event_name ?? d.eventName ?? d.league_name ?? "";
+
+  // event_date_params is "YYYYMMDD", event_date is "MM/DD" — prefer params form
+  let date = "";
+  const raw = d.event_date_params ?? d.date ?? d.start_date ?? d.startDate ?? d.event_date ?? d.held_date ?? d.schedule_date ?? "";
+  const s = raw.toString();
+  if (/^\d{8}$/.test(s)) {
+    date = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  } else {
+    date = s.slice(0, 10);
+  }
+
+  const venue = d.shop_name ?? d.shopName ?? d.venue ?? d.place ?? d.location ?? "";
+  const address = d.address ?? "";
+  const prefecture = (d.prefecture_name ?? d.prefecture ?? d.pref ?? d.area ?? "").toString();
+  const startTime = d.event_started_at ?? d.started_at ?? "";
+  const endTime = d.event_ended_at ?? d.ended_at ?? "";
   if (!id && !name) return null;
   return {
     id: id ? String(id) : "",
     name: String(name),
     date,
-    venue: String(venue),
+    start_time: String(startTime),
+    end_time: String(endTime),
+    shop_name: String(venue),
+    address: String(address),
     prefecture,
     url: d.url ?? (id ? `${BASE_URL}/event/search/${id}/list` : ""),
   };
@@ -202,12 +218,14 @@ function formatEvents(events) {
   const lines = [`**${events.length} 件のイベントが見つかりました**\n`];
   for (const [i, e] of events.entries()) {
     let line = `${i + 1}. **${e.name || "（名称不明）"}**`;
+    const timeStr = e.start_time
+      ? (e.end_time ? `${e.start_time}〜${e.end_time}` : e.start_time)
+      : "";
     const meta = [
-      e.date       && `📅 ${e.date}`,
-      e.shop_name  && `🏪 ${e.shop_name}`,
-      e.venue      && `🏪 ${e.venue}`,
-      e.address    && `📍 ${e.address}`,
-      (!e.address && !e.venue && e.prefecture) && `🗾 ${e.prefecture}`,
+      e.date                                   && `📅 ${e.date}${timeStr ? " " + timeStr : ""}`,
+      e.shop_name                              && `🏪 ${e.shop_name}`,
+      e.address                                && `📍 ${e.address}`,
+      (!e.address && !e.shop_name && e.prefecture) && `🗾 ${e.prefecture}`,
     ].filter(Boolean);
     if (meta.length) line += `\n   ${meta.join("\n   ")}`;
     if (e.url) line += `\n   ${e.url}`;
