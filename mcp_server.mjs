@@ -65,7 +65,7 @@ function getWeekendDates(dateFrom, dateTo) {
 }
 
 // ---- Playwright スクレイパー ----
-async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
+async function scrapeEvents({ prefecture, city, dateFrom, dateTo, eventName } = {}) {
   const apiResponses = [];
 
   const browser = await chromium.launch({ headless: true });
@@ -80,7 +80,6 @@ async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
     const ct = response.headers()["content-type"] || "";
     if (!ct.includes("json")) return;
     const url = response.url();
-    if (!["event", "search", "api", "list"].some(k => url.includes(k))) return;
     try {
       const data = await response.json();
       apiResponses.push({ url, data });
@@ -89,6 +88,7 @@ async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
 
   // Build URL
   const params = new URLSearchParams({ offset: "0", order: "1" });
+  if (eventName) params.set("keyword", eventName);
   if (prefecture) {
     const code = PREFECTURE_CODES[prefecture] ?? (String(prefecture).match(/^\d+$/) ? prefecture : null);
     if (code) params.set("prefecture", code);
@@ -117,8 +117,8 @@ async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
   await browser.close();
 
   // Client-side filters
-  if (dateFrom || dateTo || eventName) {
-    events = filterEvents(events, dateFrom, dateTo, eventName);
+  if (dateFrom || dateTo || eventName || city) {
+    events = filterEvents(events, dateFrom, dateTo, eventName, city);
   }
   return events;
 }
@@ -144,18 +144,36 @@ function extractFromData(data) {
 
 function parseEvent(d) {
   const id = d.id ?? d.event_id ?? d.eventId ?? d.event_schedule_id ?? d.scheduleId ?? null;
-  const name = d.name ?? d.title ?? d.event_name ?? d.eventName ?? d.league_name ?? "";
-  const date = (d.date ?? d.start_date ?? d.startDate ?? d.event_date ?? d.held_date ?? d.schedule_date ?? "").toString().slice(0, 10);
-  const venue = d.venue ?? d.shop_name ?? d.shopName ?? d.place ?? d.location ?? "";
-  const prefecture = (d.prefecture ?? d.pref ?? d.area ?? "").toString();
+  const name = d.event_title ?? d.name ?? d.title ?? d.event_name ?? d.eventName ?? d.league_name ?? "";
+
+  // event_date_params is "YYYYMMDD", event_date is "MM/DD" — prefer params form
+  let date = "";
+  const raw = d.event_date_params ?? d.date ?? d.start_date ?? d.startDate ?? d.event_date ?? d.held_date ?? d.schedule_date ?? "";
+  const s = raw.toString();
+  if (/^\d{8}$/.test(s)) {
+    date = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  } else {
+    date = s.slice(0, 10);
+  }
+
+  const venue = d.shop_name ?? d.shopName ?? d.venue ?? d.place ?? d.location ?? "";
+  const address = d.address ?? "";
+  const prefecture = (d.prefecture_name ?? d.prefecture ?? d.pref ?? d.area ?? "").toString();
+  const startTime = d.event_started_at ?? d.started_at ?? "";
+  const endTime = d.event_ended_at ?? d.ended_at ?? "";
   if (!id && !name) return null;
   return {
     id: id ? String(id) : "",
     name: String(name),
     date,
-    venue: String(venue),
+    start_time: String(startTime),
+    end_time: String(endTime),
+    shop_name: String(venue),
+    address: String(address),
     prefecture,
-    url: d.url ?? (id ? `${BASE_URL}/event/search/${id}/list` : ""),
+    url: d.url ?? (d.event_holding_id && d.shop_id && d.event_date_params && d.date_id
+      ? `${BASE_URL}/event/detail/${d.event_holding_id}/1/${d.shop_id}/${d.event_date_params}/${d.date_id}`
+      : ""),
   };
 }
 
@@ -182,15 +200,16 @@ async function extractFromDom(page) {
   }, BASE_URL);
 }
 
-function filterEvents(events, dateFrom, dateTo, keyword) {
+function filterEvents(events, dateFrom, dateTo, keyword, city) {
   return events.filter(e => {
     const d = (e.date ?? "").slice(0, 10);
     if (dateFrom && d && d < dateFrom) return false;
     if (dateTo && d && d > dateTo) return false;
     if (keyword) {
       const kw = keyword.toLowerCase();
-      if (!e.name?.toLowerCase().includes(kw) && !e.venue?.toLowerCase().includes(kw)) return false;
+      if (!e.name?.toLowerCase().includes(kw) && !e.shop_name?.toLowerCase().includes(kw)) return false;
     }
+    if (city && !e.address?.includes(city)) return false;
     return true;
   });
 }
@@ -202,12 +221,14 @@ function formatEvents(events) {
   const lines = [`**${events.length} 件のイベントが見つかりました**\n`];
   for (const [i, e] of events.entries()) {
     let line = `${i + 1}. **${e.name || "（名称不明）"}**`;
+    const timeStr = e.start_time
+      ? (e.end_time ? `${e.start_time}〜${e.end_time}` : e.start_time)
+      : "";
     const meta = [
-      e.date       && `📅 ${e.date}`,
-      e.shop_name  && `🏪 ${e.shop_name}`,
-      e.venue      && `🏪 ${e.venue}`,
-      e.address    && `📍 ${e.address}`,
-      (!e.address && !e.venue && e.prefecture) && `🗾 ${e.prefecture}`,
+      e.date                                   && `📅 ${e.date}${timeStr ? " " + timeStr : ""}`,
+      e.shop_name                              && `🏪 ${e.shop_name}`,
+      e.address                                && `📍 ${e.address}`,
+      (!e.address && !e.shop_name && e.prefecture) && `🗾 ${e.prefecture}`,
     ].filter(Boolean);
     if (meta.length) line += `\n   ${meta.join("\n   ")}`;
     if (e.url) line += `\n   ${e.url}`;
@@ -224,18 +245,20 @@ const server = new McpServer({
 
 server.tool(
   "search_pokemon_events",
-  "players.pokemon-card.com でポケモンカードゲームのイベントを検索する。都道府県・日付範囲・イベント名・土日祝フィルターを指定可能。結果はイベント名・日付・会場・URLの一覧で返す。",
+  "players.pokemon-card.com でポケモンカードゲームのイベントを検索する。都道府県・市区町村・日付範囲・イベント名・土日祝フィルターを指定可能。結果はイベント名・日付・会場・URLの一覧で返す。",
   {
     prefecture:    z.string().optional().describe("都道府県名（例: 東京, 大阪）"),
+    city:          z.string().optional().describe("市区町村名（例: 横浜市, 川崎市）"),
     date_from:     z.string().optional().describe("開始日 YYYY-MM-DD形式"),
     date_to:       z.string().optional().describe("終了日 YYYY-MM-DD形式"),
     event_name:    z.string().optional().describe("イベント名キーワード（例: シティリーグ）"),
     weekends_only: z.boolean().optional().describe("土日祝のみに絞り込む場合は true"),
   },
-  async ({ prefecture, date_from, date_to, event_name, weekends_only }) => {
+  async ({ prefecture, city, date_from, date_to, event_name, weekends_only }) => {
     try {
       let events = await scrapeEvents({
         prefecture,
+        city,
         dateFrom: date_from,
         dateTo: date_to,
         eventName: event_name,
