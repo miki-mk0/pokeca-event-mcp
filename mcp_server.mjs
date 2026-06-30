@@ -65,7 +65,7 @@ function getWeekendDates(dateFrom, dateTo) {
 }
 
 // ---- Playwright スクレイパー ----
-async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
+async function scrapeEvents({ prefecture, city, dateFrom, dateTo, eventName } = {}) {
   const apiResponses = [];
 
   const browser = await chromium.launch({ headless: true });
@@ -117,8 +117,8 @@ async function scrapeEvents({ prefecture, dateFrom, dateTo, eventName } = {}) {
   await browser.close();
 
   // Client-side filters
-  if (dateFrom || dateTo || eventName) {
-    events = filterEvents(events, dateFrom, dateTo, eventName);
+  if (dateFrom || dateTo || eventName || city) {
+    events = filterEvents(events, dateFrom, dateTo, eventName, city);
   }
   return events;
 }
@@ -200,15 +200,16 @@ async function extractFromDom(page) {
   }, BASE_URL);
 }
 
-function filterEvents(events, dateFrom, dateTo, keyword) {
+function filterEvents(events, dateFrom, dateTo, keyword, city) {
   return events.filter(e => {
     const d = (e.date ?? "").slice(0, 10);
     if (dateFrom && d && d < dateFrom) return false;
     if (dateTo && d && d > dateTo) return false;
     if (keyword) {
       const kw = keyword.toLowerCase();
-      if (!e.name?.toLowerCase().includes(kw) && !e.venue?.toLowerCase().includes(kw)) return false;
+      if (!e.name?.toLowerCase().includes(kw) && !e.shop_name?.toLowerCase().includes(kw)) return false;
     }
+    if (city && !e.address?.includes(city)) return false;
     return true;
   });
 }
@@ -244,18 +245,20 @@ const server = new McpServer({
 
 server.tool(
   "search_pokemon_events",
-  "players.pokemon-card.com でポケモンカードゲームのイベントを検索する。都道府県・日付範囲・イベント名・土日祝フィルターを指定可能。結果はイベント名・日付・会場・URLの一覧で返す。",
+  "players.pokemon-card.com でポケモンカードゲームのイベントを検索する。都道府県・市区町村・日付範囲・イベント名・土日祝フィルターを指定可能。結果はイベント名・日付・会場・URLの一覧で返す。",
   {
     prefecture:    z.string().optional().describe("都道府県名（例: 東京, 大阪）"),
+    city:          z.string().optional().describe("市区町村名（例: 横浜市, 川崎市）"),
     date_from:     z.string().optional().describe("開始日 YYYY-MM-DD形式"),
     date_to:       z.string().optional().describe("終了日 YYYY-MM-DD形式"),
     event_name:    z.string().optional().describe("イベント名キーワード（例: シティリーグ）"),
     weekends_only: z.boolean().optional().describe("土日祝のみに絞り込む場合は true"),
   },
-  async ({ prefecture, date_from, date_to, event_name, weekends_only }) => {
+  async ({ prefecture, city, date_from, date_to, event_name, weekends_only }) => {
     try {
       let events = await scrapeEvents({
         prefecture,
+        city,
         dateFrom: date_from,
         dateTo: date_to,
         eventName: event_name,
