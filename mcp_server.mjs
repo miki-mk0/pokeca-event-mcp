@@ -65,72 +65,106 @@ function getWeekendDates(dateFrom, dateTo) {
 }
 
 // ---- Playwright スクレイパー ----
+const PAGE_SIZE = 20;
+const MAX_PAGES = 15;
+
 async function scrapeEvents({ prefecture, city, dateFrom, dateTo, eventName } = {}) {
-  const apiResponses = [];
+  // カンマ・読点区切りで複数都道府県をサポート（例: "東京,神奈川"）
+  const prefList = prefecture
+    ? prefecture.split(/[,、]/).map(p => p.trim()).filter(Boolean)
+    : [null];
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     locale: "ja-JP",
   });
-  const page = await context.newPage();
 
-  page.on("response", async (response) => {
-    if (response.status() !== 200) return;
-    const ct = response.headers()["content-type"] || "";
-    if (!ct.includes("json")) return;
-    const url = response.url();
-    try {
-      const data = await response.json();
-      apiResponses.push({ url, data });
-    } catch {}
-  });
+  const seenKeys = new Set();
+  const allEvents = [];
 
-  // Build URL
-  const params = new URLSearchParams({ offset: "0", order: "1" });
-  if (eventName) params.set("keyword", eventName);
-  if (prefecture) {
-    const code = PREFECTURE_CODES[prefecture] ?? (String(prefecture).match(/^\d+$/) ? prefecture : null);
-    if (code) params.set("prefecture", code);
-  }
-  const targetUrl = `${BASE_URL}/event/search?${params}`;
+  for (const pref of prefList) {
+    const prefCode = pref
+      ? (PREFECTURE_CODES[pref] ?? (String(pref).match(/^\d+$/) ? pref : null))
+      : null;
 
-  try {
-    await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 20000 });
-    await page.waitForTimeout(2000);
-  } catch (e) {
-    console.error("[scraper] page load error:", e.message);
-  }
+    const baseParams = new URLSearchParams({ order: "1" });
+    if (eventName) baseParams.set("keyword", eventName);
+    if (prefCode) baseParams.set("prefecture", prefCode);
 
-  // Try API responses first
-  let events = [];
-  for (const { data } of apiResponses) {
-    const extracted = extractFromData(data);
-    if (extracted.length > 0) { events = extracted; break; }
-  }
+    for (let pageNum = 0; pageNum < MAX_PAGES; pageNum++) {
+      const offset = pageNum * PAGE_SIZE;
+      const apiResponses = [];
 
-  // Fallback: DOM
-  if (events.length === 0) {
-    events = await extractFromDom(page);
+      const page = await context.newPage();
+      page.on("response", async (response) => {
+        if (response.status() !== 200) return;
+        const ct = response.headers()["content-type"] || "";
+        if (!ct.includes("json")) return;
+        try {
+          const data = await response.json();
+          apiResponses.push({ url: response.url(), data });
+        } catch {}
+      });
+
+      const params = new URLSearchParams(baseParams);
+      params.set("offset", String(offset));
+      const targetUrl = `${BASE_URL}/event/search?${params}`;
+
+      try {
+        await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 20000 });
+        await page.waitForTimeout(2000);
+      } catch (e) {
+        console.error(`[scraper] page load error (offset=${offset}):`, e.message);
+        await page.close();
+        break;
+      }
+
+      let pageEvents = [];
+      for (const { data } of apiResponses) {
+        const extracted = extractFromData(data);
+        if (extracted.length > pageEvents.length) pageEvents = extracted;
+      }
+      if (pageEvents.length === 0) {
+        pageEvents = await extractFromDom(page);
+      }
+      await page.close();
+
+      const newEvents = pageEvents.filter(e => {
+        const key = e.url || e.id || (e.name + e.date);
+        if (!key || seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      });
+
+      if (newEvents.length === 0) break;
+      allEvents.push(...newEvents);
+
+      // 取得済みの最新日が dateTo を超えていたら打ち切り
+      if (dateTo) {
+        const latest = newEvents.map(e => (e.date ?? "").slice(0, 10)).filter(Boolean).sort().at(-1) ?? "";
+        if (latest && latest > dateTo) break;
+      }
+    }
   }
 
   await browser.close();
 
-  // Client-side filters
-  if (dateFrom || dateTo || eventName || city) {
-    events = filterEvents(events, dateFrom, dateTo, eventName, city);
-  }
-  return events;
+  return filterEvents(allEvents, dateFrom, dateTo, eventName, city);
 }
 
 function extractFromData(data) {
   if (Array.isArray(data)) {
-    const results = data.flatMap(item =>
+    return data.flatMap(item =>
       typeof item === "object" && item ? [parseEvent(item)].filter(Boolean) : []
     );
-    return results;
   }
   if (data && typeof data === "object") {
+    // APIレスポンスは {"event": [...]} 形式なので event キーを優先
+    if (Array.isArray(data.event)) {
+      const results = extractFromData(data.event);
+      if (results.length > 0) return results;
+    }
     let best = [];
     for (const value of Object.values(data)) {
       if (!Array.isArray(value)) continue;
@@ -209,7 +243,12 @@ function filterEvents(events, dateFrom, dateTo, keyword, city) {
       const kw = keyword.toLowerCase();
       if (!e.name?.toLowerCase().includes(kw) && !e.shop_name?.toLowerCase().includes(kw)) return false;
     }
-    if (city && !e.address?.includes(city)) return false;
+    if (city) {
+      // カンマ区切りで複数市区町村を指定可 — いずれかに一致すれば通す
+      const cityList = city.split(/[,、]/).map(c => c.trim()).filter(Boolean);
+      const searchable = `${e.address ?? ""}${e.shop_name ?? ""}`;
+      if (!cityList.some(c => searchable.includes(c))) return false;
+    }
     return true;
   });
 }
@@ -247,8 +286,8 @@ server.tool(
   "search_pokemon_events",
   "players.pokemon-card.com でポケモンカードゲームのイベントを検索する。都道府県・市区町村・日付範囲・イベント名・土日祝フィルターを指定可能。結果はイベント名・日付・会場・URLの一覧で返す。",
   {
-    prefecture:    z.string().optional().describe("都道府県名（例: 東京, 大阪）"),
-    city:          z.string().optional().describe("市区町村名（例: 横浜市, 川崎市）"),
+    prefecture:    z.string().optional().describe("都道府県名（例: 東京, 大阪）。カンマ区切りで複数指定可（例: 東京,神奈川）"),
+    city:          z.string().optional().describe("市区町村名。カンマ区切りで複数指定可（例: 横浜,川崎,町田）。prefectureで広く取ってからここで絞り込む"),
     date_from:     z.string().optional().describe("開始日 YYYY-MM-DD形式"),
     date_to:       z.string().optional().describe("終了日 YYYY-MM-DD形式"),
     event_name:    z.string().optional().describe("イベント名キーワード（例: シティリーグ）"),

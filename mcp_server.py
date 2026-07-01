@@ -136,12 +136,25 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
 
     if name == "search_pokemon_events":
         try:
-            events = await scrape_events(
-                prefecture=arguments.get("prefecture"),
-                date_from=arguments.get("date_from"),
-                date_to=arguments.get("date_to"),
-                event_name_keyword=arguments.get("event_name"),
-            )
+            # カンマ区切りで複数都道府県をサポート（例: "東京,神奈川"）
+            pref_input = arguments.get("prefecture") or ""
+            pref_list = [p.strip() for p in pref_input.split(",") if p.strip()] or [None]
+            all_events: list = []
+            seen_keys: set = set()
+            for pref in pref_list:
+                partial = await scrape_events(
+                    prefecture=pref,
+                    city=arguments.get("city"),
+                    date_from=arguments.get("date_from"),
+                    date_to=arguments.get("date_to"),
+                    event_name_keyword=arguments.get("event_name"),
+                )
+                for e in partial:
+                    key = e.get("url") or e.get("id") or (e.get("name", "") + e.get("date", ""))
+                    if key and key not in seen_keys:
+                        seen_keys.add(key)
+                        all_events.append(e)
+            events = all_events
             if arguments.get("weekends_only"):
                 df = arguments.get("date_from") or today
                 dt = arguments.get("date_to") or (
