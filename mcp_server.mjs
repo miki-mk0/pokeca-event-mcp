@@ -131,7 +131,7 @@ async function scrapeEvents({ prefecture, city, dateFrom, dateTo, eventName } = 
       await page.close();
 
       const newEvents = pageEvents.filter(e => {
-        const key = e.id || e.url || (e.name + e.date);
+        const key = e.url || e.id || (e.name + e.date);
         if (!key || seenKeys.has(key)) return false;
         seenKeys.add(key);
         return true;

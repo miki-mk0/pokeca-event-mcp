@@ -150,7 +150,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                     event_name_keyword=arguments.get("event_name"),
                 )
                 for e in partial:
-                    key = e.get("id") or e.get("url") or (e.get("name", "") + e.get("date", ""))
+                    key = e.get("url") or e.get("id") or (e.get("name", "") + e.get("date", ""))
                     if key and key not in seen_keys:
                         seen_keys.add(key)
                         all_events.append(e)

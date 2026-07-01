@@ -101,7 +101,7 @@ async def scrape_events(
 
             new_events = []
             for e in page_events:
-                key = e.get("id") or e.get("url") or e.get("name", "") + e.get("date", "")
+                key = e.get("url") or e.get("id") or e.get("name", "") + e.get("date", "")
                 if key and key not in seen_ids:
                     seen_ids.add(key)
                     new_events.append(e)
