@@ -18,15 +18,25 @@ Claude Code を開いて、そのまま日本語で聞くだけ：
 
 **必要なもの：** Node.js 18以上、Claude Code
 
+**macOS / Linux**
+
 ```bash
 git clone https://github.com/miki-mk0/pokeca-event-mcp.git
 cd pokeca-event-mcp
 ./setup_mcp.sh
 ```
 
+**Windows**
+
+```cmd
+git clone https://github.com/miki-mk0/pokeca-event-mcp.git
+cd pokeca-event-mcp
+setup_mcp.bat
+```
+
 これだけで完了です。Claude Code を再起動すると使えるようになります。
 
-### setup_mcp.sh がやること
+### セットアップスクリプトがやること
 
 1. npm パッケージをインストール（`@modelcontextprotocol/sdk`, `playwright`, `zod`）
 2. Playwright の Chromium をインストール（初回のみ、約100MB）
