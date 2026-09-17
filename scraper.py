@@ -136,11 +136,19 @@ def _extract_from_data(data) -> List[Dict]:
         return results
 
     if isinstance(data, dict):
+        # Check known event list keys first (most reliable)
+        for key in ("event", "events", "items", "results", "data"):
+            if key in data and isinstance(data[key], list):
+                extracted = _extract_from_data(data[key])
+                if extracted:
+                    return extracted
+
+        # Fall back: pick the list that produces the most valid events
         best: List[Dict] = []
         for value in data.values():
-            if isinstance(value, list) and len(value) > len(best):
+            if isinstance(value, list):
                 extracted = _extract_from_data(value)
-                if extracted:
+                if len(extracted) > len(best):
                     best = extracted
         return best
 
