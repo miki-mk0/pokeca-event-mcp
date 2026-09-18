@@ -313,7 +313,7 @@ server.tool(
 
       return { content: [{ type: "text", text: formatEvents(events) }] };
     } catch (err) {
-      return { content: [{ type: "text", text: `エラー: ${err.message}\n\nPlaywright インストール確認:\n  cd ~/pokemon-event-finder && npm run setup` }] };
+      return { content: [{ type: "text", text: `エラー: ${err.message}\n\nPlaywright インストール確認:\n  npx playwright install chromium` }] };
     }
   }
 );
